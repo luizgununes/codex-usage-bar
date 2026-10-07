@@ -6,3 +6,4 @@ tsconfig.json
 .kiro/
 skills-lock.json
 **/.git/
+test/

@@ -8,7 +8,7 @@ import * as diagnostics_channel from "diagnostics_channel";
 import { execFileSync } from "child_process";
 
 /**
- * Claude Usage Bar v0.3.5
+ * Claude Usage Bar v0.4.0
  *
  * How it works:
  * Uses Node.js diagnostics_channel to passively observe ALL HTTP requests
@@ -39,6 +39,8 @@ let fileWatcher: fs.FSWatcher | undefined;
 let displayRefreshInterval: ReturnType<typeof setInterval> | undefined;
 let pollInterval: ReturnType<typeof setTimeout> | undefined;
 let cachedRateLimit: RateLimitInfo = {};
+// True once a usage response arrived — a missing window then means 0%, not "unknown" (#16)
+let hasData = false;
 let lastGoodText: string | undefined;
 let lastGoodTooltip: string | undefined;
 let extensionContext: vscode.ExtensionContext;
@@ -58,7 +60,7 @@ export function activate(context: vscode.ExtensionContext) {
   outputChannel = vscode.window.createOutputChannel("Claude Usage Bar");
   context.subscriptions.push(outputChannel);
 
-  log("Extension activating (v0.3.5 — diagnostics_channel intercept)");
+  log("Extension activating (v0.4.0 — diagnostics_channel intercept)");
 
   // Initialize display mode from config (in-memory only after this point)
   activeDisplayMode = vscode.workspace
@@ -87,6 +89,13 @@ export function activate(context: vscode.ExtensionContext) {
   }
   rateLimitBarItem.show();
 
+  sessionInfoItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    51
+  );
+  context.subscriptions.push(sessionInfoItem);
+  updateSessionInfo();
+
   context.subscriptions.push(
     vscode.commands.registerCommand("claudeUsageBar.refresh", () => bootstrapFetch()),
     vscode.commands.registerCommand("claudeUsageBar.showDetails", () => bootstrapFetch()),
@@ -95,7 +104,7 @@ export function activate(context: vscode.ExtensionContext) {
       activeDisplayMode = activeDisplayMode === "session" ? "weekly" : activeDisplayMode === "weekly" ? "both" : "session";
       vscode.workspace.getConfiguration("claudeUsageBar").update("displayMode", activeDisplayMode, vscode.ConfigurationTarget.Global);
       vscode.window.setStatusBarMessage(`Claude Usage Bar: showing ${activeDisplayMode}`, 3000);
-      updateDisplay(true);
+      updateDisplay();
     })
   );
 
@@ -115,6 +124,7 @@ export function activate(context: vscode.ExtensionContext) {
   displayRefreshInterval = setInterval(() => {
     resetExpiredLimits();
     updateDisplay();
+    updateSessionInfo();
   }, 30_000);
 
   context.subscriptions.push({
@@ -124,6 +134,8 @@ export function activate(context: vscode.ExtensionContext) {
         fileWatcher.close();
         fileWatcher = undefined;
       }
+      sessionWatcher?.close();
+      sessionWatcher = undefined;
       if (displayRefreshInterval) clearInterval(displayRefreshInterval);
       if (pollInterval) clearTimeout(pollInterval);
     },
@@ -142,30 +154,44 @@ function log(msg: string) {
 const KEYCHAIN_SERVICE = "Claude Code-credentials";
 const ANTHROPIC_BETA = "oauth-2025-04-20";
 
-function readKeychainToken(): string | undefined {
-  if (process.platform !== "darwin") return undefined;
+function readOAuthToken(): string | undefined {
+  if (process.platform === "darwin") {
+    try {
+      const username =
+        process.env.USER || os.userInfo().username || "claude-user";
+      // execFileSync bypasses the shell entirely — no interpolation of $() or backticks.
+      // Using execSync with a template string would allow command injection if USER
+      // contains shell metacharacters (e.g. set via a malicious .envrc).
+      const raw = execFileSync(
+        "security",
+        ["find-generic-password", "-a", username, "-w", "-s", KEYCHAIN_SERVICE],
+        { encoding: "utf-8", timeout: 5000 }
+      ).trim();
+      const token = JSON.parse(raw)?.claudeAiOauth?.accessToken;
+      if (token) return token;
+    } catch {
+      // fall through to the credentials file
+    }
+  }
+  // Linux/Windows (and remote hosts): Claude Code stores the same JSON in a file (#11)
   try {
-    const username =
-      process.env.USER || os.userInfo().username || "claude-user";
-    // execFileSync bypasses the shell entirely — no interpolation of $() or backticks.
-    // Using execSync with a template string would allow command injection if USER
-    // contains shell metacharacters (e.g. set via a malicious .envrc).
-    const raw = execFileSync(
-      "security",
-      ["find-generic-password", "-a", username, "-w", "-s", KEYCHAIN_SERVICE],
-      { encoding: "utf-8", timeout: 5000 }
-    ).trim();
-    const creds = JSON.parse(raw);
-    return creds?.claudeAiOauth?.accessToken;
+    const credsPath = path.join(os.homedir(), ".claude", ".credentials.json");
+    return JSON.parse(fs.readFileSync(credsPath, "utf-8"))?.claudeAiOauth?.accessToken;
   } catch {
     return undefined;
   }
 }
 
 function bootstrapFetch() {
-  const token = readKeychainToken();
+  const token = readOAuthToken();
   if (!token) {
-    log("Bootstrap: no keychain token found, skipping");
+    log("Bootstrap: no Claude Code credentials found (keychain or ~/.claude/.credentials.json), skipping");
+    // Say so instead of a misleading "Usage OK" (#15). Keep last known data if we have it.
+    if (!lastGoodText) {
+      rateLimitBarItem.text = "$(warning) Claude: not signed in";
+      rateLimitBarItem.tooltip =
+        "Claude Usage Bar\n──────────────────────\nNo Claude Code credentials found on this machine.\nSign in to Claude Code here, then click to refresh.";
+    }
     return;
   }
 
@@ -208,6 +234,7 @@ function bootstrapFetch() {
 
 function clearStaleState() {
   cachedRateLimit = {};
+  hasData = false;
   lastGoodText = undefined;
   lastGoodTooltip = undefined;
   extensionContext.globalState.update("lastGoodText", undefined);
@@ -244,7 +271,7 @@ function backgroundFetch() {
     return;
   }
 
-  const token = readKeychainToken();
+  const token = readOAuthToken();
   if (!token) return;
 
   log("Background poll: fetching usage data...");
@@ -396,6 +423,7 @@ const MAX_RESPONSE_BYTES = 1024 * 1024; // 1 MB hard cap
 
 function tapResponseBody(res: http.IncomingMessage) {
   let body = "";
+  let parsed = false; // a response has several 'end' listeners — parse it once
   const origOn = res.on.bind(res);
 
   res.on = function (
@@ -407,18 +435,23 @@ function tapResponseBody(res: http.IncomingMessage) {
         if (body.length < MAX_RESPONSE_BYTES) {
           body += chunk.toString();
         }
-        listener(chunk);
+        listener.call(res, chunk);
       };
       return origOn.call(res, event, wrapped) as http.IncomingMessage;
     }
     if (event === "end") {
       const wrapped = (...args: unknown[]) => {
         try {
-          if (body) processUsageResponse(body);
+          if (body && !parsed) {
+            parsed = true;
+            processUsageResponse(body);
+          }
         } catch {
           // never break Claude Code
         }
-        listener(...args);
+        // Keep `this` — Node's own 'end' handler (responseOnEnd) reads this.req and
+        // threw "Cannot read properties of undefined (reading 'req')" when called bare.
+        listener.apply(res, args);
       };
       return origOn.call(res, event, wrapped) as http.IncomingMessage;
     }
@@ -436,9 +469,9 @@ function parseResetsAt(value: unknown): number | undefined {
   return undefined;
 }
 
-/** Normalize utilization — API may return 0-1 or 0-100 */
+/** API utilization is always a 0–100 percentage — e.g. 1.0 means 1%, not 100% (#13) */
 function normalizeUtilization(value: number): number {
-  return value > 1 ? value / 100 : value;
+  return value / 100;
 }
 
 function processUsageResponse(body: string) {
@@ -447,6 +480,7 @@ function processUsageResponse(body: string) {
     log(`Intercepted usage data: ${body.slice(0, 200)}`);
 
     cachedRateLimit = {};
+    hasData = true;
 
     if (parsed.five_hour?.utilization != null) {
       cachedRateLimit.fiveHour = {
@@ -535,11 +569,108 @@ function readDataFile() {
       };
     }
 
+    if (parsed.rate_limits) hasData = true;
     log(`Read statusLine file data (age: ${Math.floor(age)}s)`);
     updateDisplay();
   } catch {
     /* optional */
   }
+}
+
+// ── Session Info: active model + context size (#10, #12) ─────────
+// Read from Claude Code's own session transcript — works for the VS Code panel
+// and terminal sessions alike, with zero API calls.
+
+const PROJECTS_DIR = path.join(os.homedir(), ".claude", "projects");
+const TRANSCRIPT_TAIL_BYTES = 256 * 1024;
+let sessionInfoItem: vscode.StatusBarItem;
+let sessionWatcher: fs.FSWatcher | undefined;
+let sessionDebounce: ReturnType<typeof setTimeout> | undefined;
+
+/** "claude-opus-5-5" → "Opus 5.5"; ids that don't fit the pattern are shown as-is. */
+function prettyModel(id: string): string {
+  const m = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(id);
+  if (!m) return id;
+  return `${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}${m[3] ? "." + m[3] : ""}`;
+}
+
+/** Model + context of the last main-thread Claude reply in the newest transcript. */
+function readLastTurn(dir: string): { model: string; context: number } | undefined {
+  // ponytail: newest transcript wins — with parallel sessions in one folder this shows the most recently active one
+  const newest = fs.readdirSync(dir)
+    .filter((f) => f.endsWith(".jsonl"))
+    .map((f) => ({ file: path.join(dir, f), mtime: fs.statSync(path.join(dir, f)).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime)[0]?.file;
+  if (!newest) return undefined;
+
+  // Transcripts grow to many MB; the last reply is in the tail.
+  const fd = fs.openSync(newest, "r");
+  let tail: string;
+  try {
+    const size = fs.fstatSync(fd).size;
+    const len = Math.min(size, TRANSCRIPT_TAIL_BYTES);
+    const buf = Buffer.alloc(len);
+    fs.readSync(fd, buf, 0, len, size - len);
+    tail = buf.toString("utf-8");
+  } finally {
+    fs.closeSync(fd);
+  }
+
+  for (const line of tail.split("\n").reverse()) {
+    if (!line.includes('"assistant"')) continue;
+    try {
+      const entry = JSON.parse(line);
+      const msg = entry.message;
+      const u = msg?.usage;
+      if (entry.type !== "assistant" || entry.isSidechain || !u || !msg.model || msg.model === "<synthetic>") continue;
+      return {
+        model: msg.model,
+        context: (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0),
+      };
+    } catch {
+      // the first line of the tail is usually cut mid-way
+    }
+  }
+  return undefined;
+}
+
+function updateSessionInfo() {
+  let turn: ReturnType<typeof readLastTurn>;
+  try {
+    const enabled = vscode.workspace
+      .getConfiguration("claudeUsageBar")
+      .get<boolean>("showSessionInfo", true);
+    const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Claude Code names each project's transcript dir after its path, non-alphanumerics → "-"
+    const dir = folder && path.join(PROJECTS_DIR, folder.replace(/[^a-zA-Z0-9]/g, "-"));
+    if (enabled && dir && fs.existsSync(dir)) {
+      if (!sessionWatcher) {
+        sessionWatcher = fs.watch(dir, () => {
+          clearTimeout(sessionDebounce);
+          sessionDebounce = setTimeout(updateSessionInfo, 1000);
+        });
+        sessionWatcher.on("error", () => {});
+      }
+      turn = readLastTurn(dir);
+    }
+  } catch {
+    // transcript format is internal to Claude Code — never let it break the usage bar
+  }
+
+  if (!turn) {
+    sessionInfoItem.hide();
+    return;
+  }
+  sessionInfoItem.text = `$(hubot) ${prettyModel(turn.model)} · Ctx ${Math.round(turn.context / 1000)}K`;
+  sessionInfoItem.tooltip = [
+    "Claude Session",
+    "─".repeat(22),
+    `Model:      ${turn.model}`,
+    `Context:    ${turn.context.toLocaleString()} tokens`,
+    "",
+    "From the last Claude reply in this workspace",
+  ].join("\n");
+  sessionInfoItem.show();
 }
 
 // ── Display ──────────────────────────────────────────────────────
@@ -555,6 +686,11 @@ function formatTimeRemaining(epochSeconds: number): string {
   return `${minutes}m`;
 }
 
+/** 0–1 fraction → whole percent. The epsilon stops 0.29 * 100 = 28.999… flooring to 28. */
+function toPct(utilization: number): number {
+  return Math.floor(utilization * 100 + 1e-9);
+}
+
 function formatBar(utilPct: number): string {
   const barLength = 10;
   const filled = Math.round((utilPct / 100) * barLength);
@@ -565,16 +701,25 @@ function formatBar(utilPct: number): string {
   return "\u25CF".repeat(filled) + "\u25CB".repeat(empty);
 }
 
+/** Whether the given limit gets a progress bar (#9). */
+function showsBar(kind: "session" | "weekly"): boolean {
+  const cfg = vscode.workspace.getConfiguration("claudeUsageBar");
+  const set = cfg.inspect<string>("progressBar");
+  // Until progressBar is set explicitly, honour the deprecated showProgressBar toggle.
+  const mode =
+    set?.workspaceFolderValue ?? set?.workspaceValue ?? set?.globalValue ??
+    (cfg.get<boolean>("showProgressBar", true) ? "both" : "none");
+  return mode === "both" || mode === kind;
+}
+
 function formatLimitText(
   label: string,
   utilization: number,
-  resetsAt?: number
+  resetsAt: number | undefined,
+  showBar: boolean
 ): string {
-  const pct = Math.floor(utilization * 100);
+  const pct = toPct(utilization);
   const resetStr = resetsAt ? formatTimeRemaining(resetsAt) : "";
-  const showBar = vscode.workspace
-    .getConfiguration("claudeUsageBar")
-    .get<boolean>("showProgressBar", true);
   let text = showBar
     ? `${label} ${formatBar(pct)} ${pct}%`
     : `${label} ${pct}%`;
@@ -582,41 +727,37 @@ function formatLimitText(
   return text;
 }
 
-function updateDisplay(force = false) {
+function updateDisplay() {
   const showSession = activeDisplayMode === "session" || activeDisplayMode === "both";
   const showWeekly = activeDisplayMode === "weekly" || activeDisplayMode === "both";
 
-  const sessionLimit = cachedRateLimit.fiveHour;
+  // Once a response arrived, a missing window means nothing used yet: show 0%,
+  // never a vague "Usage OK" that hides the number (#16).
+  const zero = hasData ? { utilization: 0, resetsAt: undefined } : undefined;
+  const sessionLimit = cachedRateLimit.fiveHour ?? zero;
   const weeklyLimit =
-    cachedRateLimit.sevenDay ?? cachedRateLimit.sevenDaySonnet;
+    cachedRateLimit.sevenDay ?? cachedRateLimit.sevenDaySonnet ?? zero;
 
   const hasSession = showSession && sessionLimit;
   const hasWeekly = showWeekly && weeklyLimit;
 
-  if (!hasSession && !hasWeekly) {
-    if (!force && lastGoodText) return;
-    rateLimitBarItem.text = "$(check) Usage OK";
-    rateLimitBarItem.tooltip = "No active rate limits.\nClick to refresh.";
-    rateLimitBarItem.backgroundColor = undefined;
-    rateLimitBarItem.color = undefined;
-    rateLimitBarItem.show();
-    return;
-  }
+  // No data yet \u2014 keep "Waiting for Claude\u2026" / "not signed in" / last known text.
+  if (!hasSession && !hasWeekly) return;
 
   const parts: string[] = [];
   const pcts: number[] = [];
 
   if (hasSession) {
     parts.push(
-      formatLimitText("S:", sessionLimit.utilization, sessionLimit.resetsAt)
+      formatLimitText("S:", sessionLimit.utilization, sessionLimit.resetsAt, showsBar("session"))
     );
-    pcts.push(Math.floor(sessionLimit.utilization * 100));
+    pcts.push(toPct(sessionLimit.utilization));
   }
   if (hasWeekly) {
     parts.push(
-      formatLimitText("W:", weeklyLimit.utilization, weeklyLimit.resetsAt)
+      formatLimitText("W:", weeklyLimit.utilization, weeklyLimit.resetsAt, showsBar("weekly"))
     );
-    pcts.push(Math.floor(weeklyLimit.utilization * 100));
+    pcts.push(toPct(weeklyLimit.utilization));
   }
 
   const text = `$(pulse) ${parts.join("  ")}`;
@@ -639,21 +780,21 @@ function updateDisplay(force = false) {
   const lines = ["Claude Rate Limit", "\u2500".repeat(22)];
 
   if (cachedRateLimit.fiveHour) {
-    const pct = Math.floor(cachedRateLimit.fiveHour.utilization * 100);
+    const pct = toPct(cachedRateLimit.fiveHour.utilization);
     const rst = cachedRateLimit.fiveHour.resetsAt
       ? formatTimeRemaining(cachedRateLimit.fiveHour.resetsAt)
       : "?";
     lines.push(`Session (5h):  ${pct}%  \u00b7  resets ${rst}`);
   }
   if (cachedRateLimit.sevenDay) {
-    const pct = Math.floor(cachedRateLimit.sevenDay.utilization * 100);
+    const pct = toPct(cachedRateLimit.sevenDay.utilization);
     const rst = cachedRateLimit.sevenDay.resetsAt
       ? formatTimeRemaining(cachedRateLimit.sevenDay.resetsAt)
       : "?";
     lines.push(`Weekly (7d):    ${pct}%  \u00b7  resets ${rst}`);
   }
   if (cachedRateLimit.sevenDaySonnet) {
-    const pct = Math.floor(cachedRateLimit.sevenDaySonnet.utilization * 100);
+    const pct = toPct(cachedRateLimit.sevenDaySonnet.utilization);
     const rst = cachedRateLimit.sevenDaySonnet.resetsAt
       ? formatTimeRemaining(cachedRateLimit.sevenDaySonnet.resetsAt)
       : "?";
@@ -663,7 +804,7 @@ function updateDisplay(force = false) {
     const eu = cachedRateLimit.extraUsage;
     if (eu.usedCredits != null && eu.monthlyLimit != null) {
       lines.push(
-        `Extra usage:    $${eu.usedCredits.toFixed(0)}/$${eu.monthlyLimit} (${Math.floor((eu.utilization ?? 0) * 100)}%)`
+        `Extra usage:    $${eu.usedCredits.toFixed(0)}/$${eu.monthlyLimit} (${toPct(eu.utilization ?? 0)}%)`
       );
     }
   }
@@ -674,6 +815,7 @@ function updateDisplay(force = false) {
   rateLimitBarItem.tooltip = lines.join("\n");
   rateLimitBarItem.show();
 
+  if (text !== lastGoodText) log(`Status bar: ${text}`);
   lastGoodText = text;
   lastGoodTooltip = lines.join("\n");
   extensionContext.globalState.update("lastGoodText", lastGoodText);

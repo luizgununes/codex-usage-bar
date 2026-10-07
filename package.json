@@ -2,7 +2,7 @@
   "name": "claude-usage-bar",
   "displayName": "Claude Usage Bar",
   "description": "Shows your Claude Code rate limit usage in the VS Code status bar via statusLine integration — session %, reset countdown, and color alerts. Zero API calls.",
-  "version": "0.3.5",
+  "version": "0.4.0",
   "publisher": "HarshAgarwal1012",
   "repository": {
     "type": "git",
@@ -40,10 +40,28 @@
           ],
           "description": "Which rate limit to display in the status bar"
         },
+        "claudeUsageBar.progressBar": {
+          "type": "string",
+          "enum": ["both", "session", "weekly", "none"],
+          "default": "both",
+          "enumDescriptions": [
+            "Progress bar on session and weekly",
+            "Progress bar on session only, weekly as percentage",
+            "Progress bar on weekly only, session as percentage",
+            "Percentages only (e.g. 'S: 92% · 1h 12m')"
+          ],
+          "description": "Which limits show a visual progress bar next to the percentage"
+        },
         "claudeUsageBar.showProgressBar": {
           "type": "boolean",
           "default": true,
-          "description": "Show a visual progress bar next to the percentage. Disable for a compact text-only display (e.g. 'S: 92% · 1h 12m')."
+          "description": "Show a visual progress bar next to the percentage.",
+          "markdownDeprecationMessage": "Use `#claudeUsageBar.progressBar#` instead. Still honoured until `progressBar` is set."
+        },
+        "claudeUsageBar.showSessionInfo": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the active Claude model and context size (e.g. 'Opus 5.5 · Ctx 80K') for this workspace's latest Claude session"
         }
       }
     },
@@ -68,9 +86,11 @@
   },
   "scripts": {
     "compile": "tsc -p ./",
+    "test": "tsc -p ./ && node test/selftest.js",
     "watch": "tsc -watch -p ./",
     "package": "npx @vscode/vsce package --no-dependencies",
-    "publish": "npx @vscode/vsce publish --no-dependencies"
+    "publish": "npx @vscode/vsce publish --no-dependencies",
+    "publish:ovsx": "npx ovsx publish --no-dependencies"
   },
   "devDependencies": {
     "@types/vscode": "^1.85.0",

@@ -46,10 +46,11 @@ If you're on a Claude Code subscription, you're rate-limited on both a **5-hour 
 - **Session (5h) and weekly (7d) limits** tracked separately, with per-limit hover breakdown
 - **Display mode** — show session, weekly, or both via settings or a one-keystroke toggle
 - **Color alerts** — status bar turns yellow at 70% and red at 90%, so you can't miss it
-- **Progress bar or circles** — choose Unicode block characters or filled circles (`●●●○○`)
+- **Progress bar per limit** — circle bar (`●●●○○`) on session, weekly, both, or neither
+- **Active model + context size** — `Opus 5.5 · Ctx 80K` from your latest Claude session in this workspace
 - **Reset countdown** — ticks every 30 seconds; shows `2d 6h` for long weekly windows
 - **Zero extra API calls** — passively reads Claude Code's own `/api/oauth/usage` responses via Node.js `diagnostics_channel`
-- **Bootstrap on reload** — one API call on activation (via macOS Keychain OAuth) for instant fresh data
+- **Bootstrap on reload** — one API call on activation (OAuth from the macOS Keychain or `~/.claude/.credentials.json`) for instant fresh data
 - **Background poll** — fetches fresh data every 5 minutes with proper `Retry-After` backoff on 429s
 - **Persisted state** — last known usage survives VS Code restarts, so you never see a blank bar at startup
 - **Click to refresh** — click the status bar to force an immediate fetch
@@ -62,10 +63,12 @@ If you're on a Claude Code subscription, you're rate-limited on both a **5-hour 
 
 | Display | Meaning |
 |---|---|
-| `S: ████████░░ 82% · 1h 12m` | Session: 82% used, resets in 1h 12m |
-| `S: ●●●●○○○○○○ 40% · 2h 45m` | Same thing, with circles (via `showProgressBar=false`) |
-| `W: ████░░░░░░ 40% · 2d 6h` | Weekly: 40% used, resets in 2d 6h |
-| `$(check) Usage OK` | Below all thresholds |
+| `S: ●●●●●●●●○○ 82% · 1h 12m` | Session: 82% used, resets in 1h 12m |
+| `S: 82% · 1h 12m` | Same thing, without the bar (`progressBar: "none"`) |
+| `W: ●●●●○○○○○○ 40% · 2d 6h` | Weekly: 40% used, resets in 2d 6h |
+| `S: 0%` | Nothing used in the current 5-hour window |
+| `$(warning) Claude: not signed in` | No Claude Code credentials on this machine — sign in to Claude Code |
+| `$(hubot) Opus 5.5 · Ctx 80K` | Model and context size of the latest Claude reply in this workspace |
 | **Yellow background** | ≥ 70% used |
 | **Red background** | ≥ 90% used |
 
@@ -80,7 +83,7 @@ Claude Code (the VS Code extension) and Claude Usage Bar both run inside the sam
 
 When Claude Code calls `/api/oauth/usage` as part of its own UI rendering, the extension reads the response body passively — **zero extra network calls, zero extra auth**.
 
-On activation, a single bootstrap call fetches fresh data immediately using OAuth credentials from the macOS Keychain. After that, every update flows in via passive interception.
+On activation, a single bootstrap call fetches fresh data immediately using Claude Code's OAuth credentials — the macOS Keychain, or `~/.claude/.credentials.json` on Linux / Windows / remote hosts. After that, every update flows in via passive interception.
 
 ```
 ┌──────────────────────────────────────────┐
@@ -119,7 +122,7 @@ code --install-extension HarshAgarwal1012.claude-usage-bar
 Download the latest `.vsix` from [Releases](https://github.com/Harsh1210/claude-usage-bar/releases), then:
 
 ```bash
-code --install-extension claude-usage-bar-0.3.5.vsix
+code --install-extension claude-usage-bar-0.4.0.vsix
 ```
 
 ---
@@ -127,8 +130,7 @@ code --install-extension claude-usage-bar-0.3.5.vsix
 ## Requirements
 
 - **Claude Code** VS Code extension — [install from Anthropic](https://claude.ai/download) and sign in (OAuth, not API key)
-- **macOS** — bootstrap fetch uses the macOS Keychain via the `security` CLI
-  - _Windows / Linux support is tracked in [issues](https://github.com/Harsh1210/claude-usage-bar/issues)._
+- **macOS, Linux, Windows** — including Remote-SSH / WSL / containers (sign in to Claude Code on the remote host)
 
 ---
 
@@ -139,7 +141,9 @@ All settings live under `claudeUsageBar.*` in VS Code settings:
 | Setting | Type | Default | Description |
 |---|---|---|---|
 | `claudeUsageBar.displayMode` | `session` \| `weekly` \| `both` | `session` | Which rate limit(s) to show in the status bar |
-| `claudeUsageBar.showProgressBar` | `boolean` | `true` | Use Unicode block progress bar; set `false` for circles |
+| `claudeUsageBar.progressBar` | `both` \| `session` \| `weekly` \| `none` | `both` | Which limits show a progress bar next to the percentage |
+| `claudeUsageBar.showSessionInfo` | `boolean` | `true` | Show the active model and context size (`Opus 5.5 · Ctx 80K`) |
+| `claudeUsageBar.showProgressBar` | `boolean` | `true` | _Deprecated_ — use `progressBar`; still honoured until `progressBar` is set |
 
 ---
 
@@ -156,13 +160,21 @@ Access via Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`):
 
 ## Known Limitations
 
-- **macOS only** — bootstrap depends on the `security` CLI for OAuth keychain access
+- **Model / context** reflect the last Claude *reply* — after `/model` the item updates on the next reply. With several sessions open in one folder, the most recently active one is shown.
 - **Claude AI login required** — API-key auth for Claude Code is not supported (the usage endpoint is OAuth-scoped)
 - Usage refreshes **when Claude Code itself fetches usage data** (on panel open or explicit refresh) — not after every prompt you send. Click the status bar for an immediate refresh if you need fresher numbers.
 
 ---
 
 ## Release Notes
+
+### 0.4.0
+- **Linux, Windows & remote hosts** — reads `~/.claude/.credentials.json` when there's no macOS Keychain ([#11](https://github.com/Harsh1210/claude-usage-bar/issues/11), [#15](https://github.com/Harsh1210/claude-usage-bar/issues/15))
+- **Fix: 1% shown as 100%** — the API always reports 0–100 ([#13](https://github.com/Harsh1210/claude-usage-bar/issues/13)); also fixed 29% / 57% / 58% displaying one point low
+- **No more "Usage OK"** — always shows the real percentage (`S: 0%` for an empty window), and says "not signed in" when there are no credentials ([#16](https://github.com/Harsh1210/claude-usage-bar/issues/16))
+- **Per-limit progress bar** — new `progressBar` setting: `both` / `session` / `weekly` / `none` ([#9](https://github.com/Harsh1210/claude-usage-bar/issues/9))
+- **Active model + context size** in the status bar, e.g. `Opus 5.5 · Ctx 80K` ([#10](https://github.com/Harsh1210/claude-usage-bar/issues/10), [#12](https://github.com/Harsh1210/claude-usage-bar/issues/12))
+- **Fix: intercept crash** — reading Claude Code's usage response threw `Cannot read properties of undefined (reading 'req')` in the extension host
 
 ### 0.3.5
 - Package hygiene — exclude `.agents/` and `.kiro/` from the published `.vsix`
