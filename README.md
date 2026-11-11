@@ -39,7 +39,7 @@ To build and install locally:
 npm install
 npm test
 npm run package
-code --install-extension codex-usage-bar-vscode-0.1.0.vsix
+code --install-extension codex-usage-bar-vscode-0.1.1.vsix
 ```
 
 ## Settings

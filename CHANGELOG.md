@@ -2,6 +2,10 @@
 
 All notable changes to Codex Usage Bar will be documented in this file.
 
+## 0.1.1
+
+- Improve Visual Studio Marketplace categories and search keywords.
+
 ## 0.1.0
 
 - Initial public release.

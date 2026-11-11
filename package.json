@@ -2,7 +2,7 @@
   "name": "codex-usage-bar-vscode",
   "displayName": "Codex Usage Bar",
   "description": "Shows Codex 5-hour and weekly usage in the VS Code status bar, with progress bars, reset countdowns, and color alerts.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "luizgununes",
   "author": {
     "name": "Luiz Gustavo Nunes",
@@ -26,8 +26,25 @@
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other"],
-  "keywords": ["codex", "openai", "rate limit", "usage", "status bar", "ai"],
+  "categories": ["AI", "Visualization", "Other"],
+  "keywords": [
+    "codex",
+    "codex cli",
+    "openai",
+    "openai codex",
+    "codex usage",
+    "codex quota",
+    "codex rate limit",
+    "usage monitor",
+    "quota monitor",
+    "rate limit",
+    "weekly limit",
+    "5-hour limit",
+    "status bar",
+    "vscode extension",
+    "developer tools",
+    "ai"
+  ],
   "activationEvents": ["onStartupFinished"],
   "main": "./out/extension.js",
   "capabilities": {
