@@ -1,5 +1,5 @@
 {
-  "name": "codex-usage-bar",
+  "name": "codex-usage-bar-vscode",
   "displayName": "Codex Usage Bar",
   "description": "Shows Codex 5-hour and weekly usage in the VS Code status bar, with progress bars, reset countdowns, and color alerts.",
   "version": "0.1.0",

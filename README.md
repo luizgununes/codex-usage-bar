@@ -4,8 +4,8 @@ Your OpenAI Codex rate-limit usage, always visible in the VS Code status bar.
 
 Live 5-hour + weekly progress · color alerts at 70% / 90% · reset countdowns · no credential-file access.
 
-[![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/luizgununes.codex-usage-bar?label=VS%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=luizgununes.codex-usage-bar)
-[![Open VSX](https://img.shields.io/open-vsx/v/luizgununes/codex-usage-bar?label=Open%20VSX)](https://open-vsx.org/extension/luizgununes/codex-usage-bar)
+[![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/luizgununes.codex-usage-bar-vscode?label=VS%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=luizgununes.codex-usage-bar-vscode)
+[![Open VSX](https://img.shields.io/open-vsx/v/luizgununes/codex-usage-bar-vscode?label=Open%20VSX)](https://open-vsx.org/extension/luizgununes/codex-usage-bar-vscode)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 This project is a Codex adaptation of [Claude Usage Bar](https://github.com/Harsh1210/claude-usage-bar) by Harsh Agarwal. It preserves the compact display style while replacing the Anthropic-specific data layer with the official local Codex app-server.
@@ -31,7 +31,7 @@ If the executable is not found automatically, set `codexUsageBar.codexPath` to i
 
 ## Install
 
-Install from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=luizgununes.codex-usage-bar) or [Open VSX](https://open-vsx.org/extension/luizgununes/codex-usage-bar).
+Install from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=luizgununes.codex-usage-bar-vscode) or [Open VSX](https://open-vsx.org/extension/luizgununes/codex-usage-bar-vscode).
 
 To build and install locally:
 
@@ -39,7 +39,7 @@ To build and install locally:
 npm install
 npm test
 npm run package
-code --install-extension codex-usage-bar-0.1.0.vsix
+code --install-extension codex-usage-bar-vscode-0.1.0.vsix
 ```
 
 ## Settings
