@@ -1,16 +1,21 @@
 {
-  "name": "claude-usage-bar",
-  "displayName": "Claude Usage Bar",
-  "description": "Shows your Claude Code rate limit usage in the VS Code status bar via statusLine integration — session %, reset countdown, and color alerts. Zero API calls.",
-  "version": "0.4.0",
-  "publisher": "HarshAgarwal1012",
+  "name": "codex-usage-bar",
+  "displayName": "Codex Usage Bar",
+  "description": "Shows Codex 5-hour and weekly usage in the VS Code status bar, with progress bars, reset countdowns, and color alerts.",
+  "version": "0.1.0",
+  "publisher": "luizgununes",
+  "author": {
+    "name": "Luiz Gustavo Nunes",
+    "email": "lgnunes.profissional@gmail.com",
+    "url": "https://lgnunes.dev"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Harsh1210/claude-usage-bar"
+    "url": "https://github.com/luizgununes/codex-usage-bar.git"
   },
-  "homepage": "https://github.com/Harsh1210/claude-usage-bar",
+  "homepage": "https://github.com/luizgununes/codex-usage-bar#readme",
   "bugs": {
-    "url": "https://github.com/Harsh1210/claude-usage-bar/issues"
+    "url": "https://github.com/luizgununes/codex-usage-bar/issues"
   },
   "license": "MIT",
   "icon": "icon.png",
@@ -22,75 +27,117 @@
     "vscode": "^1.85.0"
   },
   "categories": ["Other"],
-  "keywords": ["claude", "anthropic", "rate limit", "usage", "status bar", "claude code", "ai"],
+  "keywords": ["codex", "openai", "rate limit", "usage", "status bar", "ai"],
   "activationEvents": ["onStartupFinished"],
   "main": "./out/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Runs the official local Codex executable to read account rate limits."
+    },
+    "virtualWorkspaces": false
+  },
   "contributes": {
     "configuration": {
-      "title": "Claude Usage Bar",
+      "title": "Codex Usage Bar",
       "properties": {
-        "claudeUsageBar.displayMode": {
+        "codexUsageBar.displayMode": {
           "type": "string",
           "enum": ["session", "weekly", "both"],
           "default": "session",
           "enumDescriptions": [
-            "Show session (5-hour) rate limit",
-            "Show weekly (7-day) rate limit",
-            "Show both session and weekly limits"
+            "Show the 5-hour rate limit",
+            "Show the weekly rate limit",
+            "Show both the 5-hour and weekly limits"
           ],
           "description": "Which rate limit to display in the status bar"
         },
-        "claudeUsageBar.progressBar": {
+        "codexUsageBar.progressBar": {
           "type": "string",
           "enum": ["both", "session", "weekly", "none"],
           "default": "both",
           "enumDescriptions": [
-            "Progress bar on session and weekly",
-            "Progress bar on session only, weekly as percentage",
-            "Progress bar on weekly only, session as percentage",
-            "Percentages only (e.g. 'S: 92% · 1h 12m')"
+            "Progress bar on the 5-hour and weekly limits",
+            "Progress bar on the 5-hour limit only",
+            "Progress bar on the weekly limit only",
+            "Percentages only"
           ],
-          "description": "Which limits show a visual progress bar next to the percentage"
+          "description": "Which limits show a visual progress bar"
         },
-        "claudeUsageBar.showProgressBar": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show a visual progress bar next to the percentage.",
-          "markdownDeprecationMessage": "Use `#claudeUsageBar.progressBar#` instead. Still honoured until `progressBar` is set."
+        "codexUsageBar.percentageMode": {
+          "type": "string",
+          "enum": ["used", "remaining"],
+          "default": "used",
+          "enumDescriptions": [
+            "Show percentage of quota used",
+            "Show percentage of quota remaining"
+          ],
+          "description": "Whether percentages represent used or remaining quota"
         },
-        "claudeUsageBar.showSessionInfo": {
+        "codexUsageBar.showProviderLabel": {
           "type": "boolean",
-          "default": true,
-          "description": "Show the active Claude model and context size (e.g. 'Opus 5.5 · Ctx 80K') for this workspace's latest Claude session"
+          "default": false,
+          "description": "Show the Codex provider name in the status bar so it is distinct from other usage extensions"
+        },
+        "codexUsageBar.alignment": {
+          "type": "string",
+          "enum": ["left", "right"],
+          "default": "left",
+          "enumDescriptions": [
+            "Place Codex Usage Bar on the left side of the status bar",
+            "Place Codex Usage Bar on the right side of the status bar"
+          ],
+          "description": "Which side of the VS Code status bar contains the Codex usage item"
+        },
+        "codexUsageBar.leftPosition": {
+          "type": "string",
+          "enum": ["normal", "farLeft"],
+          "default": "normal",
+          "enumDescriptions": [
+            "Respect the normal ordering of left-side status items",
+            "Place Codex before built-in Git and extension status items"
+          ],
+          "description": "Ordering used when Codex Usage Bar is aligned to the left"
+        },
+        "codexUsageBar.codexPath": {
+          "type": "string",
+          "default": "codex",
+          "scope": "machine",
+          "markdownDescription": "Path to the official `codex` executable. The extension also discovers the executable bundled with the official OpenAI extension."
+        },
+        "codexUsageBar.refreshIntervalSeconds": {
+          "type": "number",
+          "default": 60,
+          "minimum": 15,
+          "description": "How often to refresh Codex usage (minimum 15 seconds)"
         }
       }
     },
     "commands": [
       {
-        "command": "claudeUsageBar.refresh",
-        "title": "Claude Usage: Refresh"
+        "command": "codexUsageBar.refreshRateLimit",
+        "title": "Codex Usage: Refresh Rate Limit"
       },
       {
-        "command": "claudeUsageBar.showDetails",
-        "title": "Claude Usage: Show Session Details"
+        "command": "codexUsageBar.switchDisplayMode",
+        "title": "Codex Usage: Switch Display Mode (5h / Weekly / Both)"
       },
       {
-        "command": "claudeUsageBar.refreshRateLimit",
-        "title": "Claude Usage: Refresh Rate Limit"
-      },
-      {
-        "command": "claudeUsageBar.switchDisplayMode",
-        "title": "Claude Usage: Switch Display Mode (Session / Weekly / Both)"
+        "command": "codexUsageBar.openUsagePage",
+        "title": "Codex Usage: Open Usage Page"
       }
     ]
   },
   "scripts": {
     "compile": "tsc -p ./",
     "test": "tsc -p ./ && node test/selftest.js",
+    "smoke": "tsc -p ./ && node test/smoke.js",
     "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm test",
     "package": "npx @vscode/vsce package --no-dependencies",
-    "publish": "npx @vscode/vsce publish --no-dependencies",
-    "publish:ovsx": "npx ovsx publish --no-dependencies"
+    "publish:marketplace": "npx @vscode/vsce publish",
+    "publish:openvsx": "npx ovsx publish",
+    "publish:all": "npm run publish:marketplace && npm run publish:openvsx"
   },
   "devDependencies": {
     "@types/vscode": "^1.85.0",
