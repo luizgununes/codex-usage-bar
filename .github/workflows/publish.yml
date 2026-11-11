@@ -10,7 +10,19 @@ permissions:
   id-token: write
 
 jobs:
-  publish:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  marketplace:
+    needs: test
     runs-on: ubuntu-latest
     environment: release
     steps:
@@ -20,8 +32,19 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm test
       - name: Publish to Visual Studio Marketplace
         run: npx @vscode/vsce publish --oidc
+
+  openvsx:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
       - name: Publish to Open VSX
         run: npx ovsx publish --trusted-publishing
