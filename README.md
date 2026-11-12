@@ -8,6 +8,8 @@ Live 5-hour + weekly progress · color alerts at 70% / 90% · reset countdowns �
 [![Open VSX](https://img.shields.io/open-vsx/v/luizgununes/codex-usage-bar-vscode?label=Open%20VSX)](https://open-vsx.org/extension/luizgununes/codex-usage-bar-vscode)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
+![Codex Usage Bar in the VS Code status bar](assets/codex-usage-bar.png)
+
 This project is a Codex adaptation of [Claude Usage Bar](https://github.com/Harsh1210/claude-usage-bar) by Harsh Agarwal. It preserves the compact display style while replacing the Anthropic-specific data layer with the official local Codex app-server.
 
 ## Features
